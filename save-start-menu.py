@@ -1,4 +1,4 @@
-#!python
+#!pythonw
 """
 * Program - Save Start Menu
 * Author - [Gino Vincenzini](mailto:OpenMySourceCode@gmail.com)
@@ -38,8 +38,8 @@ import re
 import sys
 
 ### registry related ###
-from lib_registry import *
-from winreg import *
+import lib_registry as lreg
+import winreg as reg
 
 ### gui pyside ###
 import PySide2.QtCore as Core 
@@ -50,24 +50,40 @@ import PySide2.QtWidgets as Widgets
 USER_DIR = f"C:\\Users\\{os.getenv('username')}"
 
 ## FUNCTIONS ##
-def check_for_reset():
+def display_help_message():
+    print("""
+          Usage: save-start-menu [--reset|--help]
+          --reset: Delete all files in startmenus folder
+          --help: display this help message
+          
+          Only the first switch given will be considered.
+          """)
+    sys.exit(0)
+
+def check_for_switches():
 	"""
 	This function checks if the program was run using the --reset option and then
 	clears out the files in the startmenus directory accordingly. Then exits
 	"""
+	filename = ''
 	if len(sys.argv) == 2 and sys.argv[1] == '--reset':
 		for filename in os.listdir(f"C:\\Users\\{os.getenv('username')}\\startmenus\\"):
 			os.remove(f"C:\\Users\\{os.getenv('username')}\\startmenus\\{filename}")
-		quit()
+		os.system('cls' if os.name == 'nt' else 'clear')
+		sys.exit(0)
+	elif len(sys.argv) == 2 and sys.argv[1] == '--help':
+		display_help_message()
+	else:
+		pass
 
-def try_open(file_name, mode='r', buffering=-1, 
+def try_open(file_name: str, mode='r', buffering=-1, 
 	encoding=None, errors=None, newline=None, closefd=True, opener=None):
 	"""
 	This function allows the user to add "try_" to the beginning of their open()
 	calls so that if the file exists, it will be open for updating, if it does
 	not, then it will be opened as requested.
 	"""
-	MODE_REGEX = '([rwax])([+]{0,1})([bt]{0,1})'
+	MODE_REGEX = '([arwx])([+]{0,1})([bt]{0,1})'
 	try:
 		fileHandle = open(file_name, mode, buffering, encoding, errors, 
 			newline, closefd, opener)
@@ -80,7 +96,7 @@ def try_open(file_name, mode='r', buffering=-1,
 	finally:
 		return fileHandle
 
-def get_sid_from_username(username):
+def get_sid_from_username(username: str):
 	"""
 	This is a function recommended to the lib_registry library but which hasn't
 	been included yet. It accounts for the '.DEFAULT' SID. Perhaps in the future
@@ -88,15 +104,15 @@ def get_sid_from_username(username):
 	straightforward rather than a thin wrapper over the Windows API, The former
 	would make registry access on windows a LOT more pythonic.
 	"""
-	keyls = get_ls_user_sids()
+	keyls = lreg.get_ls_user_sids()
 	for sid in keyls:
 		if sid == '.DEFAULT':
 			continue
-		if get_username_from_sid(sid) == username:
+		if lreg.get_username_from_sid(sid) == username:
 			return sid
 	raise ValueError(f"The username {username} was not found in the SID list")
 
-def show_dialog(text, caption):
+def show_dialog(text: str, caption: str) -> int:
 	"""
 	The show dialog function is very specialized at the moment. It ONLY exists to
 	get input from the user graphically (since the intention is to run this from a
@@ -115,7 +131,7 @@ def show_dialog(text, caption):
 
 		if start_key is not None:	
 			try:
-				value, _ = QueryValueEx(start_key, "Data")
+				value, _ = reg.QueryValueEx(start_key, "Data")
 				handle = try_open(f"{USER_DIR}\\startmenus\\index.txt", 'a')
 				exportFile = try_open(file_name, mode="wb")
 			except Exception as e:
@@ -136,6 +152,7 @@ def show_dialog(text, caption):
 	app = Widgets.QApplication([])
 	mainWidget = Widgets.QWidget()
 	v_layout = Widgets.QVBoxLayout(mainWidget)
+	h_layout = Widgets.QHBoxLayout()
 	label = Widgets.QLabel(caption)
 	editbox = Widgets.QLineEdit()
 	button = Widgets.QPushButton("Save")
@@ -145,7 +162,6 @@ def show_dialog(text, caption):
 	Core.QObject.connect(editbox, Core.SIGNAL("returnPressed()"), on_click)
 
 	# Layout the widgets
-	h_layout = Widgets.QHBoxLayout()
 	h_layout.addStretch()
 	h_layout.addWidget(button)
 	v_layout.addWidget(label)
@@ -186,39 +202,38 @@ def get_next_filename():
 
 	return (filenumber, file_name)
 
-def get_start_key():
+def get_start_key() -> int:
 	"""
 	Returns a handle of the key where start menu pins are located.
 	"""
-	DefaultAccount_key = OpenKey(
-			HKEY_USERS,
+	DefaultAccount_key = reg.OpenKey(
+			reg.HKEY_USERS,
 			f"{get_sid_from_username(os.getenv('username'))}" + 
 			"\\Software\\Microsoft\\Windows\\CurrentVersion\\" +
 			"CloudStore\\Store\\Cache\\DefaultAccount\\")
 
-	numKeys = get_number_of_subkeys(DefaultAccount_key)
+	numKeys = lreg.get_number_of_subkeys(DefaultAccount_key)
 	i = 0
 	while i < numKeys:
-		localKey = EnumKey(DefaultAccount_key, i)
+		localKey = reg.EnumKey(DefaultAccount_key, i)
 		if localKey.endswith('$start.tilegrid$' +
 			'windows.data.curatedtilecollection.tilecollection'):
-			start_key = OpenKey(DefaultAccount_key, localKey)
+			start_key = reg.OpenKey(DefaultAccount_key, localKey)
 			break
 		i += 1
 
 	if start_key is None:
 		raise ValueError("Start Menu Key not found")
 	else:
-		start_key = OpenKey(start_key, 'Current')
+		start_key = reg.OpenKey(start_key, 'Current')
 		return start_key
 
 def entry():
 	"""
 	Entrypoint for the program. 
 	"""
-	check_for_reset()
-	os.system('cls' if os.name == 'nt' else 'clear')
-
+	check_for_switches()
+	
 	try:
 		os.makedirs(f"C:\\Users\\{os.getenv('username')}\\startmenus\\")
 	except FileExistsError:
@@ -226,4 +241,5 @@ def entry():
 
 	show_dialog("Question", "What did you change in the Start Tile Layout?")
 
+# Perform the entry point when run as a script.
 if __name__ == "__main__": entry() # Main Function
